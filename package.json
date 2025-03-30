@@ -1,0 +1,20 @@
+{
+  "dependencies": {
+    "@react-native-community/geolocation": "^3.4.0",
+    "expo": "^52.0.41",
+    "expo-build-properties": "^0.13.2",
+    "expo-image-picker": "^16.0.6",
+    "react": "18.3.1",
+    "react-native": "0.76.7",
+    "react-native-incall-manager": "^4.2.0",
+    "react-native-maps": "^1.20.1",
+    "react-native-webrtc": "^124.0.5",
+    "react-native-websocket": "^1.0.2"
+  },
+  "name": "SaferIndia",
+  "version": "1.0.0",
+  "scripts": {
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  }
+}
