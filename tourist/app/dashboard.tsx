@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -13,8 +13,10 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  Image
+  Image,
+  Modal
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { callService } from '../services/voiceCallService';
 import { Audio } from 'expo-av';
@@ -119,6 +121,50 @@ interface PreferenceOption {
   icon: IconName;
 }
 
+// Add hardcoded guide data
+const HARDCODED_GUIDES: LocalGuide[] = [
+  {
+    id: 'guide_1',
+    name: 'Rajesh Kumar',
+    image: 'https://randomuser.me/api/portraits/men/32.jpg',
+    rating: 4.8,
+    languages: ['Hindi', 'English', 'Punjabi'],
+    city: 'Gurgaon',
+    experience: '5 years of experience in local tours',
+    hourlyRate: 1200
+  },
+  {
+    id: 'guide_2',
+    name: 'Priya Sharma',
+    image: 'https://randomuser.me/api/portraits/women/44.jpg',
+    rating: 4.9,
+    languages: ['Hindi', 'English', 'Gujarati'],
+    city: 'Gurgaon',
+    experience: '7 years of experience in cultural tours',
+    hourlyRate: 1500
+  },
+  {
+    id: 'guide_3',
+    name: 'Amit Patel',
+    image: 'https://randomuser.me/api/portraits/men/67.jpg',
+    rating: 4.7,
+    languages: ['Hindi', 'English', 'Marathi'],
+    city: 'Delhi',
+    experience: '3 years of experience in food tours',
+    hourlyRate: 1000
+  },
+  {
+    id: 'guide_4',
+    name: 'Neha Gupta',
+    image: 'https://randomuser.me/api/portraits/women/22.jpg',
+    rating: 4.6,
+    languages: ['Hindi', 'English', 'Bengali'],
+    city: 'Noida',
+    experience: '4 years of experience in heritage tours',
+    hourlyRate: 1300
+  }
+];
+
 function Dashboard() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -143,7 +189,6 @@ function Dashboard() {
   const [guides, setGuides] = useState<LocalGuide[]>([]);
   const [loadingGuides, setLoadingGuides] = useState(false);
   const [callStatus, setCallStatus] = useState<CallStatus>('idle');
-  const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [agentResponse, setAgentResponse] = useState('');
   const openai = useRef(new OpenAI({
@@ -156,6 +201,8 @@ function Dashboard() {
   const [accommodationPreference, setAccommodationPreference] = useState<string>('comfortable');
   const [transportationPreference, setTransportationPreference] = useState<string>('mixed');
   const [pace, setPace] = useState<string>('moderate');
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   const TRAVEL_STYLES: PreferenceOption[] = [
     { id: 'luxury', label: 'Luxury', icon: 'diamond' },
@@ -255,90 +302,8 @@ function Dashboard() {
     });
   };
 
-  const startRecording = async () => {
-    try {
-      setIsLoading(true);
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(newRecording);
-      setIsRecording(true);
-      await newRecording.startAsync();
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Error starting recording:', error);
-      setIsLoading(false);
-      Alert.alert('Error', 'Failed to start recording');
-    }
-  };
+  
 
-  const stopRecording = async () => {
-    try {
-      setIsLoading(true);
-      if (!recording) {
-        throw new Error('No recording in progress');
-      }
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      if (!uri) {
-        throw new Error('No recording URI available');
-      }
-
-      // Convert audio to base64
-      const base64Audio = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Send to OpenAI Whisper API
-      const response = await openai.current.audio.transcriptions.create({
-        file: new File([Buffer.from(base64Audio, 'base64')], 'audio.m4a', { type: 'audio/m4a' }),
-        model: 'whisper-1',
-      });
-
-      const transcribedText = response.text;
-      
-      // Add user message
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        text: transcribedText,
-        sender: 'user',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, userMessage]);
-
-      // Get AI response
-      const completion = await openai.current.chat.completions.create({
-        model: "gpt-4",
-        messages: [{ role: "user", content: transcribedText }],
-      });
-
-      const aiResponse = completion.choices[0].message.content;
-      if (aiResponse) {
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: aiResponse,
-          sender: 'assistant',
-          timestamp: new Date(),
-          type: 'agent_response'
-        };
-        setMessages(prev => [...prev, assistantMessage]);
-
-        // Speak the response
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream?text=${encodeURIComponent(aiResponse)}` },
-          { shouldPlay: true }
-        );
-      }
-
-      setRecording(null);
-      setIsRecording(false);
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Error stopping recording:', error);
-      setIsLoading(false);
-      Alert.alert('Error', 'Failed to process recording');
-    }
-  };
 
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
@@ -566,6 +531,27 @@ function Dashboard() {
     setCustomDuration('');
   };
 
+  useEffect(() => {
+    const loadAllGuides = async () => {
+      try {
+        setLoadingGuides(true);
+        // Use hardcoded guides instead of API call
+        console.log('Loading hardcoded guides:', HARDCODED_GUIDES.length);
+        setGuides(HARDCODED_GUIDES);
+      } catch (error) {
+        console.error('Error loading guides:', error);
+        Alert.alert(
+          'Guide Loading Error',
+          'Unable to load guides at this time. Please try again later.'
+        );
+      } finally {
+        setLoadingGuides(false);
+      }
+    };
+
+    loadAllGuides();
+  }, []);
+
   const handleSend = async () => {
     setIsLoading(true);
     try {
@@ -584,23 +570,9 @@ function Dashboard() {
       setCurrentItinerary(result.itinerary);
       setTravelInfo(result.travelInfo);
       
-      // Load guides for the city in the itinerary
+      // Update filters with the city from the itinerary
       if (result.travelInfo && result.travelInfo.city) {
-        setLoadingGuides(true);
-        try {
-          // Get guides for the specific city
-          const cityGuides = await guideService.getGuidesByCity(result.travelInfo.city);
-          // Only set guides that match the city exactly
-          const matchingGuides = cityGuides.filter(guide => 
-            guide.city.toLowerCase() === result.travelInfo.city.toLowerCase()
-          );
-          setGuides(matchingGuides);
-        } catch (error) {
-          console.error('Error loading guides:', error);
-          Alert.alert('Error', 'Failed to load guides for this city');
-        } finally {
-          setLoadingGuides(false);
-        }
+        setFilters(prev => ({ ...prev, city: result.travelInfo.city }));
       }
     } catch (error) {
       console.error('Error generating itinerary:', error);
@@ -619,6 +591,7 @@ function Dashboard() {
 
   // Update the filtered guides to only use language filter
   const filteredGuides = guides.filter(guide => {
+    if (filters.city && !guide.city.toLowerCase().includes(filters.city.toLowerCase())) return false;
     if (filters.language && !guide.languages.includes(filters.language)) return false;
     return true;
   });
@@ -638,7 +611,10 @@ function Dashboard() {
       return (
         <View style={styles.emptyState}>
           <Ionicons name="people-outline" size={48} color="#666" />
-          <Text style={styles.emptyStateText}>No guides available</Text>
+          <Text style={styles.emptyStateText}>No guides available in the system</Text>
+          <Text style={[styles.emptyStateText, { fontSize: 12, marginTop: 8 }]}>
+            Please check back later or contact support
+          </Text>
         </View>
       );
     }
@@ -648,6 +624,7 @@ function Dashboard() {
         horizontal 
         showsHorizontalScrollIndicator={false}
         style={styles.guidesScrollView}
+        contentContainerStyle={{ paddingRight: 16 }}
       >
         {filteredGuides.map((guide) => (
           <TouchableOpacity 
@@ -670,12 +647,18 @@ function Dashboard() {
             </View>
             <Text style={styles.guideName}>{guide.name}</Text>
             <Text style={styles.guideCity}>{guide.city}</Text>
+            <Text style={styles.guideRate}>₹{guide.hourlyRate}/hour</Text>
             <View style={styles.languagesContainer}>
-              {guide.languages.map((lang, index) => (
+              {guide.languages.slice(0, 2).map((lang, index) => (
                 <View key={index} style={styles.languageTag}>
                   <Text style={styles.languageText}>{lang}</Text>
                 </View>
               ))}
+              {guide.languages.length > 2 && (
+                <View style={styles.languageTag}>
+                  <Text style={styles.languageText}>+{guide.languages.length - 2} more</Text>
+                </View>
+              )}
             </View>
           </TouchableOpacity>
         ))}
@@ -683,7 +666,6 @@ function Dashboard() {
     );
   };
 
-  // Update the renderItinerary function's guides section
   const renderItinerary = (itinerary: ItineraryDay[]) => {
     return (
       <View>
@@ -843,14 +825,17 @@ function Dashboard() {
   };
 
   const GuideModal = ({ guide, onClose }: { guide: LocalGuide; onClose: () => void }) => {
-    const [showRequestForm, setShowRequestForm] = useState(false);
-    const [startDate, setStartDate] = useState(new Date());
-    const [endDate, setEndDate] = useState(new Date());
+    const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+    const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+    const [startDate, setStartDate] = useState<Date | null>(null);
+    const [endDate, setEndDate] = useState<Date | null>(null);
     const [numberOfPeople, setNumberOfPeople] = useState('1');
     const [notes, setNotes] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [bookingSuccess, setBookingSuccess] = useState(false);
 
     const calculateTotalCost = () => {
+      if (!startDate || !endDate) return 0;
       const hours = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
       return hours * guide.hourlyRate * parseInt(numberOfPeople);
     };
@@ -858,19 +843,17 @@ function Dashboard() {
     const handleSubmit = async () => {
       try {
         setIsSubmitting(true);
-        const request: Omit<TourRequest, 'id' | 'status' | 'createdAt' | 'updatedAt'> = {
-          guideId: guide.id,
-          startDate,
-          endDate,
-          numberOfPeople: parseInt(numberOfPeople),
-          totalCost: calculateTotalCost(),
-          notes
-        };
-
-        await tourRequestService.createRequest(request);
+        
+        // Simulate API call delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Simulate successful booking
+        setBookingSuccess(true);
+        
+        // Show success message
         Alert.alert(
-          'Success',
-          'Tour request sent successfully! The guide will respond to your request soon.',
+          'Booking Successful!',
+          `Your tour with ${guide.name} has been booked successfully. The guide will contact you shortly to confirm the details.`,
           [{ text: 'OK', onPress: onClose }]
         );
       } catch (error) {
@@ -884,76 +867,111 @@ function Dashboard() {
       }
     };
 
+    const handleStartDateChange = (event: any, selectedDate?: Date) => {
+      setShowStartDatePicker(false);
+      if (selectedDate) {
+        setStartDate(selectedDate);
+      }
+    };
+
+    const handleEndDateChange = (event: any, selectedDate?: Date) => {
+      setShowEndDatePicker(false);
+      if (selectedDate) {
+        setEndDate(selectedDate);
+      }
+    };
+
     return (
-      <View style={styles.modalContainer}>
-        <ScrollView style={styles.modalContent}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={24} color="#333" />
-          </TouchableOpacity>
-          
-          <Image source={{ uri: guide.image }} style={styles.modalGuideImage} />
-          <Text style={styles.modalGuideName}>{guide.name}</Text>
-          <Text style={styles.modalGuideCity}>{guide.city}</Text>
-          
-          <View style={styles.modalRatingContainer}>
-            <Ionicons name="star" size={16} color="#FFD700" />
-            <Text style={styles.modalRatingText}>{guide.rating}</Text>
-          </View>
-
-          <View style={styles.modalInfoContainer}>
-            <Text style={styles.modalInfoLabel}>Experience</Text>
-            <Text style={styles.modalInfoValue}>{guide.experience}</Text>
-            
-            <Text style={styles.modalInfoLabel}>Rate</Text>
-            <Text style={styles.modalInfoValue}>₹{guide.hourlyRate}/hour</Text>
-          </View>
-          
-          <View style={styles.modalLanguagesContainer}>
-            <Text style={styles.modalLanguagesTitle}>Languages</Text>
-            <View style={styles.modalLanguagesList}>
-              {guide.languages.map((lang, index) => (
-                <View key={index} style={styles.modalLanguageTag}>
-                  <Text style={styles.modalLanguageText}>{lang}</Text>
-                </View>
-              ))}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={true}
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Guide Details</Text>
+              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+                <Text style={styles.closeButtonText}>×</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+            
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+              <Image source={{ uri: guide.image }} style={styles.modalGuideImage} />
+              <Text style={styles.modalGuideName}>{guide.name}</Text>
+              <Text style={styles.modalGuideCity}>{guide.city}</Text>
+              
+              <View style={styles.modalRatingContainer}>
+                <Ionicons name="star" size={16} color="#FFD700" />
+                <Text style={styles.modalRatingText}>{guide.rating}</Text>
+              </View>
 
-          {!showRequestForm ? (
-            <TouchableOpacity 
-              style={styles.contactGuideButton}
-              onPress={() => setShowRequestForm(true)}
-            >
-              <Text style={styles.contactGuideButtonText}>Request Tour</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.requestFormContainer}>
-              <Text style={styles.formTitle}>Tour Request</Text>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Start Date & Time</Text>
-                <TextInput
-                  style={styles.input}
-                  value={startDate.toLocaleString()}
-                  onChangeText={(text) => setStartDate(new Date(text))}
-                  placeholder="DD/MM/YYYY HH:MM"
-                />
+              <View style={styles.modalInfoContainer}>
+                <Text style={styles.modalInfoLabel}>Experience</Text>
+                <Text style={styles.modalInfoValue}>{guide.experience}</Text>
+                
+                <Text style={styles.modalInfoLabel}>Rate</Text>
+                <Text style={styles.modalInfoValue}>₹{guide.hourlyRate}/hour</Text>
+              </View>
+              
+              <View style={styles.modalLanguagesContainer}>
+                <Text style={styles.modalLanguagesTitle}>Languages</Text>
+                <View style={styles.modalLanguagesList}>
+                  {guide.languages.map((lang, index) => (
+                    <View key={index} style={styles.modalLanguageTag}>
+                      <Text style={styles.modalLanguageText}>{lang}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>End Date & Time</Text>
-                <TextInput
-                  style={styles.input}
-                  value={endDate.toLocaleString()}
-                  onChangeText={(text) => setEndDate(new Date(text))}
-                  placeholder="DD/MM/YYYY HH:MM"
-                />
+                <Text style={styles.formLabel}>Start Date</Text>
+                <TouchableOpacity 
+                  style={styles.datePickerButton}
+                  onPress={() => setShowStartDatePicker(true)}
+                >
+                  <Text style={styles.datePickerButtonText}>
+                    {startDate ? startDate.toLocaleDateString() : 'Select Start Date'}
+                  </Text>
+                </TouchableOpacity>
               </View>
+
+              {showStartDatePicker && (
+                <DateTimePicker
+                  value={startDate || new Date()}
+                  mode="date"
+                  display="default"
+                  onChange={handleStartDateChange}
+                />
+              )}
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>End Date</Text>
+                <TouchableOpacity 
+                  style={styles.datePickerButton}
+                  onPress={() => setShowEndDatePicker(true)}
+                >
+                  <Text style={styles.datePickerButtonText}>
+                    {endDate ? endDate.toLocaleDateString() : 'Select End Date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {showEndDatePicker && (
+                <DateTimePicker
+                  value={endDate || new Date()}
+                  mode="date"
+                  display="default"
+                  onChange={handleEndDateChange}
+                />
+              )}
 
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Number of People</Text>
                 <TextInput
-                  style={styles.input}
+                  style={styles.formInput}
                   value={numberOfPeople}
                   onChangeText={setNumberOfPeople}
                   keyboardType="numeric"
@@ -964,7 +982,7 @@ function Dashboard() {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Notes (Optional)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={styles.formInput}
                   value={notes}
                   onChangeText={setNotes}
                   placeholder="Any special requirements or preferences?"
@@ -992,10 +1010,10 @@ function Dashboard() {
                   <Text style={styles.submitButtonText}>Send Request</Text>
                 )}
               </TouchableOpacity>
-            </View>
-          )}
-        </ScrollView>
-      </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     );
   };
 
@@ -1052,6 +1070,26 @@ function Dashboard() {
                     placeholderTextColor="#999"
                   />
                 </View>
+                {showCurrencySelector && (
+                  <View style={styles.currencyList}>
+                    {CURRENCIES.map((currency) => (
+                      <TouchableOpacity
+                        key={currency.code}
+                        style={[
+                          styles.currencyOption,
+                          selectedCurrency.code === currency.code && styles.selectedCurrency
+                        ]}
+                        onPress={() => {
+                          setSelectedCurrency(currency);
+                          setShowCurrencySelector(false);
+                        }}
+                      >
+                        <Text style={styles.currencySymbol}>{currency.symbol}</Text>
+                        <Text style={styles.currencyCode}>{currency.code}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
               </View>
             </View>
 
@@ -1370,7 +1408,7 @@ function Dashboard() {
           placeholderTextColor="#666"
           multiline
         />
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={[styles.micButton, isRecording && styles.micButtonActive]}
           onPress={isRecording ? stopRecording : startRecording}
           disabled={isLoading}
@@ -1384,7 +1422,7 @@ function Dashboard() {
               color="#fff"
             />
           )}
-        </TouchableOpacity>
+        </TouchableOpacity> */}
         <TouchableOpacity
           style={styles.sendButton}
           onPress={handleSend}
@@ -1651,7 +1689,7 @@ const styles = StyleSheet.create({
   currencyOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
@@ -1877,6 +1915,11 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 8,
   },
+  guideRate: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
   languagesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1909,12 +1952,38 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalScrollView: {
+    maxHeight: '100%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    backgroundColor: '#f8f8f8',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
   },
   closeButton: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    zIndex: 1,
+    padding: 8,
+  },
+  closeButtonText: {
+    fontSize: 24,
+    color: '#666',
   },
   modalGuideImage: {
     width: '100%',
@@ -2022,16 +2091,25 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   datePickerButton: {
+    backgroundColor: '#f5f5f5',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginVertical: 8,
+  },
+  datePickerButtonText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  input: {
     backgroundColor: '#fff',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#ddd',
-  },
-  datePickerButtonText: {
     fontSize: 16,
-    color: '#333',
   },
   costContainer: {
     backgroundColor: '#fff',
@@ -2286,5 +2364,24 @@ const styles = StyleSheet.create({
   },
   messagesContent: {
     padding: 16,
+  },
+  formInput: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    fontSize: 16,
+  },
+  label: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  formFieldLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
   },
 });
