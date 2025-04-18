@@ -35,8 +35,7 @@ The project consists of three main parts:
 - **Backend**: Node.js, Express
 - **Database**: MongoDB
 - **Authentication**: JWT
-- **Real-time Communication**: Socket.io
-- **Voice Calls**: WebRTC
+- **Voice Calls**: Twillio & Vapi
 - **AI Integration**: OpenAI API
 
 ## Getting Started
