@@ -1,23 +1,12 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Image,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
-import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { guideService } from '../services/guideService';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
+import { guideService, GuideProfile } from '../services/guideService';
 
 export default function ProfileSetup() {
-  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -27,100 +16,74 @@ export default function ProfileSetup() {
     experience: '',
     hourlyRate: '',
     bio: '',
-    profileImage: '',
+    profileImage: 'https://via.placeholder.com/150',
   });
-
-  const pickImage = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled) {
-        setFormData(prev => ({ ...prev, profileImage: result.assets[0].uri }));
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
-    }
-  };
 
   const handleSubmit = async () => {
     try {
+      if (!user) return;
+
       // Validate required fields
-      if (!formData.fullName || !formData.email || !formData.city || !formData.profileImage) {
+      if (!formData.fullName || !formData.email || !formData.city || !formData.experience || !formData.hourlyRate) {
         Alert.alert('Error', 'Please fill in all required fields');
         return;
       }
 
-      setLoading(true);
+      const guideData = {
+        id: user.id,
+        fullName: formData.fullName,
+        email: formData.email,
+        phone: formData.phone || '',
+        city: formData.city,
+        languages: formData.languages.split(',').map(lang => lang.trim()),
+        experience: formData.experience,
+        hourlyRate: parseFloat(formData.hourlyRate),
+        bio: formData.bio || '',
+        profileImage: formData.profileImage,
+      };
 
-      // Convert languages string to array
-      const languages = formData.languages
-        .split(',')
-        .map(lang => lang.trim())
-        .filter(lang => lang.length > 0);
+      // First check if profile exists
+      try {
+        await guideService.getProfile(user.id);
+      } catch (error) {
+        // If profile doesn't exist, create it
+        await guideService.createProfile(guideData);
+        Alert.alert('Success', 'Profile created successfully!');
+        router.replace('/dashboard');
+        return;
+      }
 
-      // Create profile
-      await guideService.createProfile({
-        ...formData,
-        languages,
-        hourlyRate: parseFloat(formData.hourlyRate) || 0,
-        experience: formData.experience || '0 years',
-      });
-
-      Alert.alert('Success', 'Profile created successfully!', [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/dashboard'),
-        },
-      ]);
+      // If profile exists, update it
+      await guideService.updateProfile(user.id, guideData);
+      Alert.alert('Success', 'Profile updated successfully!');
+      router.replace('/dashboard');
     } catch (error) {
-      console.error('Error creating profile:', error);
-      Alert.alert('Error', 'Failed to create profile. Please try again.');
-    } finally {
-      setLoading(false);
+      console.error('Error handling profile:', error);
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
     }
   };
 
   return (
     <ScrollView style={styles.container}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Complete Your Profile</Text>
-        <Text style={styles.subtitle}>Help tourists get to know you better</Text>
-      </View>
-
       <View style={styles.form}>
-        <TouchableOpacity style={styles.imageContainer} onPress={pickImage}>
-          {formData.profileImage ? (
-            <Image source={{ uri: formData.profileImage }} style={styles.profileImage} />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Text style={styles.imagePlaceholderText}>Add Photo</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
+        <Text style={styles.title}>Complete Your Guide Profile</Text>
+        
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Full Name *</Text>
+          <Text style={styles.label}>Full Name</Text>
           <TextInput
             style={styles.input}
             value={formData.fullName}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, fullName: text }))}
+            onChangeText={(text) => setFormData({ ...formData, fullName: text })}
             placeholder="Enter your full name"
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email *</Text>
+          <Text style={styles.label}>Email</Text>
           <TextInput
             style={styles.input}
             value={formData.email}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
+            onChangeText={(text) => setFormData({ ...formData, email: text })}
             placeholder="Enter your email"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -128,22 +91,22 @@ export default function ProfileSetup() {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Phone Number</Text>
+          <Text style={styles.label}>Phone</Text>
           <TextInput
             style={styles.input}
             value={formData.phone}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
+            onChangeText={(text) => setFormData({ ...formData, phone: text })}
             placeholder="Enter your phone number"
             keyboardType="phone-pad"
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>City *</Text>
+          <Text style={styles.label}>City</Text>
           <TextInput
             style={styles.input}
             value={formData.city}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, city: text }))}
+            onChangeText={(text) => setFormData({ ...formData, city: text })}
             placeholder="Enter your city"
           />
         </View>
@@ -153,7 +116,7 @@ export default function ProfileSetup() {
           <TextInput
             style={styles.input}
             value={formData.languages}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, languages: text }))}
+            onChangeText={(text) => setFormData({ ...formData, languages: text })}
             placeholder="e.g., English, Hindi, Spanish"
           />
         </View>
@@ -163,7 +126,7 @@ export default function ProfileSetup() {
           <TextInput
             style={styles.input}
             value={formData.experience}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, experience: text }))}
+            onChangeText={(text) => setFormData({ ...formData, experience: text })}
             placeholder="e.g., 5 years"
           />
         </View>
@@ -173,7 +136,7 @@ export default function ProfileSetup() {
           <TextInput
             style={styles.input}
             value={formData.hourlyRate}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, hourlyRate: text }))}
+            onChangeText={(text) => setFormData({ ...formData, hourlyRate: text })}
             placeholder="Enter your hourly rate"
             keyboardType="numeric"
           />
@@ -184,23 +147,15 @@ export default function ProfileSetup() {
           <TextInput
             style={[styles.input, styles.bioInput]}
             value={formData.bio}
-            onChangeText={(text) => setFormData(prev => ({ ...prev, bio: text }))}
-            placeholder="Tell tourists about yourself"
+            onChangeText={(text) => setFormData({ ...formData, bio: text })}
+            placeholder="Tell us about yourself and your guiding experience"
             multiline
             numberOfLines={4}
           />
         </View>
 
-        <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.submitButtonText}>Create Profile</Text>
-          )}
+        <TouchableOpacity style={styles.button} onPress={handleSubmit}>
+          <Text style={styles.buttonText}>Complete Profile</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -212,52 +167,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  header: {
+  form: {
     padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-  },
-  form: {
-    padding: 20,
-  },
-  imageContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-  },
-  imagePlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imagePlaceholderText: {
-    color: '#666',
-    fontSize: 16,
+    marginBottom: 20,
+    textAlign: 'center',
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   label: {
     fontSize: 16,
+    marginBottom: 5,
     color: '#333',
-    marginBottom: 8,
   },
   input: {
     borderWidth: 1,
@@ -270,19 +195,16 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
   },
-  submitButton: {
-    backgroundColor: '#4A90E2',
+  button: {
+    backgroundColor: '#007AFF',
+    padding: 15,
     borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
     marginTop: 20,
   },
-  submitButtonDisabled: {
-    opacity: 0.7,
-  },
-  submitButtonText: {
+  buttonText: {
     color: '#fff',
+    textAlign: 'center',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
 }); 

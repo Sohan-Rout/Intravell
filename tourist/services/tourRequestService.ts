@@ -1,34 +1,58 @@
 import { apiService } from './apiService';
+import { guideService } from './guideService';
 
-export type TourRequest = {
-  id?: string;
+export interface TourRequest {
+  id: string;
   guideId: string;
+  touristId: string;
   startDate: Date;
   endDate: Date;
   numberOfPeople: number;
-  totalCost: number;
-  status: 'pending' | 'accepted' | 'rejected';
   notes?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
-};
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: Date;
+}
 
 export const tourRequestService = {
-  async createRequest(request: Omit<TourRequest, 'id' | 'status' | 'createdAt' | 'updatedAt'>): Promise<TourRequest> {
+  async createRequest(request: Omit<TourRequest, 'id' | 'status' | 'createdAt'>): Promise<TourRequest> {
     try {
-      return await apiService.post('/tour-requests', request);
+      const response = await apiService.post('/tour-requests', request);
+      // Increment the guide's request count
+      await guideService.incrementRequestCount(request.guideId);
+      return response.data;
     } catch (error) {
       console.error('Error creating tour request:', error);
-      throw error;
+      throw new Error('Failed to create tour request');
     }
   },
 
-  async getRequestsByTourist(): Promise<TourRequest[]> {
+  async getRequestsByTourist(touristId: string): Promise<TourRequest[]> {
     try {
-      return await apiService.get('/tour-requests/tourist');
+      const response = await apiService.get(`/tour-requests/tourist/${touristId}`);
+      return response.data;
     } catch (error) {
-      console.error('Error fetching tourist requests:', error);
-      throw error;
+      console.error('Error fetching tour requests:', error);
+      throw new Error('Failed to fetch tour requests');
+    }
+  },
+
+  async getRequestsByGuide(guideId: string): Promise<TourRequest[]> {
+    try {
+      const response = await apiService.get(`/tour-requests/guide/${guideId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching guide requests:', error);
+      throw new Error('Failed to fetch guide requests');
+    }
+  },
+
+  async updateRequestStatus(requestId: string, status: 'accepted' | 'rejected'): Promise<TourRequest> {
+    try {
+      const response = await apiService.patch(`/tour-requests/${requestId}/status`, { status });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating request status:', error);
+      throw new Error('Failed to update request status');
     }
   },
 

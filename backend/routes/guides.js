@@ -7,7 +7,7 @@ router.post('/', async (req, res) => {
   try {
     const guide = new Guide({
       ...req.body,
-      id: `guide_${Date.now()}`,
+      id: req.body.id || `guide_${Date.now()}`,
       rating: 0,
       totalTours: 0,
       createdAt: new Date(),

@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { AuthProvider } from '../context/AuthContext';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -28,8 +29,10 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Slot />
-      <StatusBar style="auto" />
+      <AuthProvider>
+        <Slot />
+        <StatusBar style="auto" />
+      </AuthProvider>
     </ThemeProvider>
   );
 }

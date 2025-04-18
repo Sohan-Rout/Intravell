@@ -8,18 +8,42 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { guideService, GuideProfile } from '../services/guideService';
 import { tourRequestService, TourRequest } from '../services/tourRequestService';
+import { useAuth } from '../contexts/AuthContext';
+import { guideAuthService } from '../services/guideAuthService';
+import { apiService } from '../services/apiService';
+
+type GuideRequest = {
+  _id: string;
+  id: string;
+  guideId: string;
+  touristId: string;
+  startDate: string;
+  endDate: string;
+  numberOfPeople: number;
+  notes?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  progressStatus?: 'started' | 'ongoing' | 'completed';
+  itineraryId: string;
+  totalCost: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export default function GuideDashboard() {
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'requests' | 'earnings'>('profile');
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<GuideProfile | null>(null);
-  const [requests, setRequests] = useState<TourRequest[]>([]);
+  const [requests, setRequests] = useState<GuideRequest[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [progressFilter, setProgressFilter] = useState<'all' | 'started' | 'ongoing' | 'completed'>('all');
 
   useEffect(() => {
     loadData();
@@ -28,14 +52,23 @@ export default function GuideDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      // Use the ID from the recently created guide profile
-      const guideId = 'guide_1743275637591';
-      const [profileData, requestsData] = await Promise.all([
+      
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to view this page.');
+        router.replace('/');
+        return;
+      }
+      
+      const guideId = user.id;
+      
+      // Load profile and bookings in parallel
+      const [profileData, bookingsResponse] = await Promise.all([
         guideService.getProfile(guideId),
-        tourRequestService.getGuideRequests(guideId),
+        apiService.get(`/bookings/guide/${guideId}`),
       ]);
+      
       setProfile(profileData);
-      setRequests(requestsData);
+      setRequests(bookingsResponse || []);
     } catch (error) {
       console.error('Error loading data:', error);
       Alert.alert(
@@ -51,13 +84,47 @@ export default function GuideDashboard() {
     try {
       setLoading(true);
       const status = action === 'accept' ? 'accepted' : 'rejected';
-      await tourRequestService.updateRequestStatus(requestId, status);
-      await loadData(); // Reload requests
+      
+      await apiService.patch(`/bookings/${requestId}/status`, { status });
+      await loadData(); // Reload bookings
+      
+      Alert.alert(
+        'Success',
+        `Booking ${action}ed successfully`
+      );
     } catch (error) {
-      console.error('Error updating request:', error);
-      Alert.alert('Error', 'Failed to update request. Please try again.');
+      console.error('Error updating booking:', error);
+      Alert.alert('Error', 'Failed to update booking. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+      Alert.alert('Error', 'Failed to logout. Please try again.');
+    }
+  };
+
+  const getProgressColor = (status: string) => {
+    switch (status) {
+      case 'started':
+        return '#4CAF50';
+      case 'ongoing':
+        return '#2196F3';
+      case 'completed':
+        return '#9C27B0';
+      default:
+        return '#666';
     }
   };
 
@@ -67,7 +134,10 @@ export default function GuideDashboard() {
     return (
       <View style={styles.section}>
         <View style={styles.profileHeader}>
-          <Image source={{ uri: profile.profileImage }} style={styles.profileImage} />
+          <Image 
+            source={{ uri: profile.profileImage || 'https://via.placeholder.com/150' }} 
+            style={styles.profileImage} 
+          />
           <View style={styles.profileInfo}>
             <Text style={styles.name}>{profile.fullName}</Text>
             <Text style={styles.city}>{profile.city}</Text>
@@ -97,17 +167,35 @@ export default function GuideDashboard() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Languages</Text>
           <View style={styles.languageTags}>
-            {profile.languages.map((lang, index) => (
-              <View key={index} style={styles.languageTag}>
-                <Text style={styles.languageText}>{lang}</Text>
-              </View>
-            ))}
+            {profile.languages && profile.languages.length > 0 ? (
+              profile.languages.map((lang, index) => (
+                <View key={index} style={styles.languageTag}>
+                  <Text style={styles.languageText}>{lang}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No languages specified</Text>
+            )}
           </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
-          <Text style={styles.bio}>{profile.bio}</Text>
+          <Text style={styles.bio}>{profile.bio || 'No bio provided'}</Text>
+        </View>
+        
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Contact Information</Text>
+          <View style={styles.contactInfo}>
+            <View style={styles.contactRow}>
+              <Ionicons name="mail-outline" size={16} color="#666" />
+              <Text style={styles.contactText}>{profile.email}</Text>
+            </View>
+            <View style={styles.contactRow}>
+              <Ionicons name="call-outline" size={16} color="#666" />
+              <Text style={styles.contactText}>{profile.phone || 'No phone number provided'}</Text>
+            </View>
+          </View>
         </View>
       </View>
     );
@@ -118,58 +206,143 @@ export default function GuideDashboard() {
       return (
         <View style={styles.emptyState}>
           <Ionicons name="calendar-outline" size={48} color="#666" />
-          <Text style={styles.emptyStateText}>No tour requests yet</Text>
+          <Text style={styles.emptyStateText}>No booking requests yet</Text>
         </View>
       );
     }
 
+    const filteredRequests = requests.filter(request => {
+      if (request.status !== 'accepted') return true;
+      if (progressFilter === 'all') return true;
+      return request.progressStatus === progressFilter;
+    });
+
     return (
-      <View style={styles.section}>
-        {requests.map((request) => (
-          <View key={request.id} style={styles.requestCard}>
-            <View style={styles.requestHeader}>
-              <Text style={styles.touristName}>{request.touristName}</Text>
-              <View style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusColor(request.status) }
-              ]}>
-                <Text style={styles.statusText}>{request.status}</Text>
-              </View>
-            </View>
+      <View style={styles.requestsContainer}>
+        <View style={styles.filterContainer}>
+          <Text style={styles.filterLabel}>Progress Status:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+            <TouchableOpacity
+              style={[styles.filterButton, progressFilter === 'all' && styles.filterButtonActive]}
+              onPress={() => setProgressFilter('all')}
+            >
+              <Text style={[styles.filterButtonText, progressFilter === 'all' && styles.filterButtonTextActive]}>
+                All
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, progressFilter === 'started' && styles.filterButtonActive]}
+              onPress={() => setProgressFilter('started')}
+            >
+              <Text style={[styles.filterButtonText, progressFilter === 'started' && styles.filterButtonTextActive]}>
+                Started
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, progressFilter === 'ongoing' && styles.filterButtonActive]}
+              onPress={() => setProgressFilter('ongoing')}
+            >
+              <Text style={[styles.filterButtonText, progressFilter === 'ongoing' && styles.filterButtonTextActive]}>
+                Ongoing
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.filterButton, progressFilter === 'completed' && styles.filterButtonActive]}
+              onPress={() => setProgressFilter('completed')}
+            >
+              <Text style={[styles.filterButtonText, progressFilter === 'completed' && styles.filterButtonTextActive]}>
+                Completed
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
 
-            <View style={styles.requestDetails}>
-              <View style={styles.detailRow}>
-                <Ionicons name="calendar" size={16} color="#666" />
-                <Text style={styles.detailText}>{formatDate(request.date)}</Text>
+        <ScrollView
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          {filteredRequests.map((request) => (
+            <View key={request._id} style={styles.requestCard}>
+              <View style={styles.requestHeader}>
+                <View style={styles.touristInfo}>
+                  <Ionicons name="person-circle-outline" size={24} color="#4A90E2" />
+                  <Text style={styles.touristName}>Tourist Request</Text>
+                </View>
+                <View style={styles.statusContainer}>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(request.status) }]}>
+                    <Text style={styles.statusText}>{request.status.toUpperCase()}</Text>
+                  </View>
+                  {request.status === 'accepted' && request.progressStatus && (
+                    <View style={[styles.progressBadge, { backgroundColor: getProgressColor(request.progressStatus) }]}>
+                      <Text style={styles.statusText}>{request.progressStatus.toUpperCase()}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
-              <View style={styles.detailRow}>
-                <Ionicons name="time" size={16} color="#666" />
-                <Text style={styles.detailText}>{request.startTime} ({request.duration})</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Ionicons name="cash" size={16} color="#666" />
-                <Text style={styles.detailText}>₹{request.totalAmount}</Text>
-              </View>
-            </View>
 
-            {request.status === 'pending' && (
-              <View style={styles.actionButtons}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.acceptButton]}
-                  onPress={() => handleRequestAction(request.id, 'accept')}
-                >
-                  <Text style={styles.actionButtonText}>Accept</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.rejectButton]}
-                  onPress={() => handleRequestAction(request.id, 'reject')}
-                >
-                  <Text style={styles.actionButtonText}>Reject</Text>
-                </TouchableOpacity>
+              <View style={styles.requestDetails}>
+                <View style={styles.detailRow}>
+                  <Ionicons name="calendar-outline" size={16} color="#666" />
+                  <Text style={styles.detailText}>
+                    {formatDate(request.startDate)} - {formatDate(request.endDate)}
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Ionicons name="people-outline" size={16} color="#666" />
+                  <Text style={styles.detailText}>
+                    {request.numberOfPeople} {request.numberOfPeople === 1 ? 'person' : 'people'}
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Ionicons name="cash-outline" size={16} color="#666" />
+                  <Text style={styles.detailText}>
+                    Total Cost: ₹{request.totalCost}
+                  </Text>
+                </View>
+
+                {request.notes && (
+                  <View style={styles.notesContainer}>
+                    <Text style={styles.notesLabel}>Notes:</Text>
+                    <Text style={styles.notesText}>{request.notes}</Text>
+                  </View>
+                )}
+
+                <View style={styles.timestamps}>
+                  <Text style={styles.timestampText}>
+                    Requested on {formatDate(request.createdAt)}
+                  </Text>
+                  {request.updatedAt !== request.createdAt && (
+                    <Text style={styles.timestampText}>
+                      Last updated {formatDate(request.updatedAt)}
+                    </Text>
+                  )}
+                </View>
               </View>
-            )}
-          </View>
-        ))}
+
+              {request.status === 'pending' && (
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.acceptButton]}
+                    onPress={() => handleRequestAction(request.id, 'accept')}
+                  >
+                    <Ionicons name="checkmark-outline" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.rejectButton]}
+                    onPress={() => handleRequestAction(request.id, 'reject')}
+                  >
+                    <Ionicons name="close-outline" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Reject</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          ))}
+        </ScrollView>
       </View>
     );
   };
@@ -196,9 +369,12 @@ export default function GuideDashboard() {
     <View style={styles.container}>
       <StatusBar style="dark" />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Guide Dashboard</Text>
-        <TouchableOpacity onPress={() => router.push('/profile-setup')}>
-          <Ionicons name="settings-outline" size={24} color="#333" />
+        <View>
+          <Text style={styles.welcomeText}>Welcome,</Text>
+          <Text style={styles.nameText}>{user?.fullName}</Text>
+        </View>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={24} color="#666" />
         </TouchableOpacity>
       </View>
 
@@ -232,20 +408,24 @@ export default function GuideDashboard() {
   );
 }
 
-const getStatusColor = (status: TourRequest['status']) => {
+const getStatusColor = (status: string) => {
   switch (status) {
-    case 'pending': return '#FFA500';
-    case 'accepted': return '#4CAF50';
-    case 'rejected': return '#F44336';
-    case 'completed': return '#2196F3';
+    case 'pending':
+      return '#FFA500';
+    case 'accepted':
+      return '#4CAF50';
+    case 'rejected':
+      return '#F44336';
+    default:
+      return '#666';
   }
 };
 
 const formatDate = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    weekday: 'long',
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
     year: 'numeric',
-    month: 'long',
+    month: 'short',
     day: 'numeric',
   });
 };
@@ -263,10 +443,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
-  headerTitle: {
+  welcomeText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  nameText: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
+  },
+  logoutButton: {
+    padding: 8,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -400,13 +587,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  touristInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   touristName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
   },
@@ -427,16 +619,44 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
+  notesContainer: {
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+  },
+  notesLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  notesText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  timestamps: {
+    marginTop: 8,
+    gap: 4,
+  },
+  timestampText: {
+    fontSize: 12,
+    color: '#999',
+  },
   actionButtons: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     gap: 12,
     marginTop: 16,
   },
   actionButton: {
-    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
-    alignItems: 'center',
   },
   acceptButton: {
     backgroundColor: '#4CAF50',
@@ -464,5 +684,67 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  contactInfo: {
+    gap: 12,
+    marginTop: 8,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contactText: {
+    color: '#666',
+    fontSize: 14,
+  },
+  requestsContainer: {
+    flex: 1,
+  },
+  filterContainer: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  filterScroll: {
+    flexDirection: 'row',
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    marginRight: 8,
+  },
+  filterButtonActive: {
+    backgroundColor: '#4A90E2',
+  },
+  filterButtonText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  progressBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
 }); 

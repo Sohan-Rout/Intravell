@@ -14,34 +14,38 @@ import {
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function GuideAuth() {
+  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const { login, register } = useAuth();
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
+  const handleSubmit = async () => {
+    if (isLogin) {
+      if (!email || !password) {
+        Alert.alert('Error', 'Please fill in all fields');
+        return;
+      }
+    } else {
+      if (!email || !password || !fullName) {
+        Alert.alert('Error', 'Please fill in all fields');
+        return;
+      }
     }
 
     setLoading(true);
     try {
-      // TODO: Implement actual authentication
-      // For now, we'll just simulate a successful login
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // TODO: Check if profile is completed
-      const hasCompletedProfile = false; // Replace with actual check
-      
-      if (!hasCompletedProfile) {
-        router.replace('/profile-setup');
+      if (isLogin) {
+        await login(email, password);
       } else {
-        router.replace('/dashboard');
+        await register(email, password, fullName);
       }
     } catch (error) {
-      Alert.alert('Error', 'Invalid credentials');
+      Alert.alert('Error', isLogin ? 'Invalid credentials' : 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -64,6 +68,19 @@ export default function GuideAuth() {
         </View>
 
         <View style={styles.form}>
+          {!isLogin && (
+            <View style={styles.inputContainer}>
+              <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Full Name"
+                value={fullName}
+                onChangeText={setFullName}
+                autoCapitalize="words"
+              />
+            </View>
+          )}
+
           <View style={styles.inputContainer}>
             <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
             <TextInput
@@ -89,22 +106,22 @@ export default function GuideAuth() {
 
           <TouchableOpacity 
             style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleLogin}
+            onPress={handleSubmit}
             disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Login</Text>
+              <Text style={styles.buttonText}>{isLogin ? 'Login' : 'Register'}</Text>
             )}
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={styles.registerLink}
-            onPress={() => Alert.alert('Coming Soon', 'Registration will be available soon!')}
+            style={styles.switchButton}
+            onPress={() => setIsLogin(!isLogin)}
           >
-            <Text style={styles.registerText}>
-              New guide? <Text style={styles.registerTextBold}>Register here</Text>
+            <Text style={styles.switchButtonText}>
+              {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -120,23 +137,23 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    justifyContent: 'center',
     padding: 20,
   },
   header: {
     alignItems: 'center',
-    marginTop: 60,
     marginBottom: 40,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#333',
-    marginTop: 16,
+    marginTop: 10,
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
-    marginTop: 8,
+    marginTop: 5,
   },
   form: {
     width: '100%',
@@ -144,27 +161,28 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    marginBottom: 15,
+    paddingHorizontal: 15,
+    height: 50,
   },
   inputIcon: {
-    marginRight: 12,
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    height: 50,
+    height: '100%',
     fontSize: 16,
-    color: '#333',
   },
   button: {
     backgroundColor: '#4A90E2',
+    borderRadius: 8,
     height: 50,
-    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 10,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -172,18 +190,14 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
-  registerLink: {
+  switchButton: {
     marginTop: 20,
     alignItems: 'center',
   },
-  registerText: {
-    color: '#666',
-    fontSize: 14,
-  },
-  registerTextBold: {
+  switchButtonText: {
     color: '#4A90E2',
-    fontWeight: '600',
+    fontSize: 14,
   },
 }); 

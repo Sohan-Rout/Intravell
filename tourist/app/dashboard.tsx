@@ -25,6 +25,8 @@ import OpenAI from 'openai';
 import { guideService, LocalGuide } from '../services/guideService';
 import { tourRequestService, TourRequest } from '../services/tourRequestService';
 import * as FileSystem from 'expo-file-system';
+import { bookingService, BookingRequest } from '../services/bookingService';
+import { useAuth } from '../context/AuthContext';
 
 type Message = {
   id: string;
@@ -37,6 +39,7 @@ type Message = {
 
 type ItineraryDay = {
   day: number;
+  itineraryId: string;
   activities: {
     time: string;
     activity: string;
@@ -96,6 +99,14 @@ type GuideFilter = {
   language: string;
 };
 
+type BookingStatus = {
+  id: string;
+  guideName: string;
+  startDate: string;
+  endDate: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'completed';
+};
+
 const CURRENCIES: Currency[] = [
   { code: 'USD', symbol: '$', name: 'US Dollar', rate: 83.25 },
   { code: 'EUR', symbol: '€', name: 'Euro', rate: 89.50 },
@@ -121,49 +132,35 @@ interface PreferenceOption {
   icon: IconName;
 }
 
-// Add hardcoded guide data
-const HARDCODED_GUIDES: LocalGuide[] = [
-  {
-    id: 'guide_1',
-    name: 'Rajesh Kumar',
-    image: 'https://randomuser.me/api/portraits/men/32.jpg',
-    rating: 4.8,
-    languages: ['Hindi', 'English', 'Punjabi'],
-    city: 'Gurgaon',
-    experience: '5 years of experience in local tours',
-    hourlyRate: 1200
-  },
-  {
-    id: 'guide_2',
-    name: 'Priya Sharma',
-    image: 'https://randomuser.me/api/portraits/women/44.jpg',
-    rating: 4.9,
-    languages: ['Hindi', 'English', 'Gujarati'],
-    city: 'Gurgaon',
-    experience: '7 years of experience in cultural tours',
-    hourlyRate: 1500
-  },
-  {
-    id: 'guide_3',
-    name: 'Amit Patel',
-    image: 'https://randomuser.me/api/portraits/men/67.jpg',
-    rating: 4.7,
-    languages: ['Hindi', 'English', 'Marathi'],
-    city: 'Delhi',
-    experience: '3 years of experience in food tours',
-    hourlyRate: 1000
-  },
-  {
-    id: 'guide_4',
-    name: 'Neha Gupta',
-    image: 'https://randomuser.me/api/portraits/women/22.jpg',
-    rating: 4.6,
-    languages: ['Hindi', 'English', 'Bengali'],
-    city: 'Noida',
-    experience: '4 years of experience in heritage tours',
-    hourlyRate: 1300
-  }
-];
+function BookingStatusCard({ booking }: { booking: BookingStatus }) {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'accepted':
+        return '#4CAF50';
+      case 'rejected':
+        return '#F44336';
+      case 'completed':
+        return '#2196F3';
+      default:
+        return '#FFA000';
+    }
+  };
+
+  return (
+    <View style={styles.bookingCard}>
+      <View style={styles.bookingHeader}>
+        <Text style={styles.guideName}>{booking.guideName}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status) }]}>
+          <Text style={styles.statusText}>{booking.status.toUpperCase()}</Text>
+        </View>
+      </View>
+      <View style={styles.bookingDetails}>
+        <Text style={styles.dateText}>Start: {new Date(booking.startDate).toLocaleDateString()}</Text>
+        <Text style={styles.dateText}>End: {new Date(booking.endDate).toLocaleDateString()}</Text>
+      </View>
+    </View>
+  );
+}
 
 function Dashboard() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -184,8 +181,6 @@ function Dashboard() {
   const [travelTips, setTravelTips] = useState<string[]>([]);
   const [selectedGuide, setSelectedGuide] = useState<LocalGuide | null>(null);
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const [filters, setFilters] = useState<GuideFilter>({ city: '', language: '' });
-  const [showFilters, setShowFilters] = useState(false);
   const [guides, setGuides] = useState<LocalGuide[]>([]);
   const [loadingGuides, setLoadingGuides] = useState(false);
   const [callStatus, setCallStatus] = useState<CallStatus>('idle');
@@ -203,6 +198,10 @@ function Dashboard() {
   const [pace, setPace] = useState<string>('moderate');
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const { user } = useAuth();
+  const [defaultPhoneNumber, setDefaultPhoneNumber] = useState('+1 (267) 415-8223'); // US number with country code
+  const [bookings, setBookings] = useState<BookingStatus[]>([]);
+  const [loadingBookings, setLoadingBookings] = useState(false);
 
   const TRAVEL_STYLES: PreferenceOption[] = [
     { id: 'luxury', label: 'Luxury', icon: 'diamond' },
@@ -301,9 +300,6 @@ function Dashboard() {
       Alert.alert('Error', 'An error occurred during the call');
     });
   };
-
-  
-
 
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
@@ -535,9 +531,9 @@ function Dashboard() {
     const loadAllGuides = async () => {
       try {
         setLoadingGuides(true);
-        // Use hardcoded guides instead of API call
-        console.log('Loading hardcoded guides:', HARDCODED_GUIDES.length);
-        setGuides(HARDCODED_GUIDES);
+        const fetchedGuides = await guideService.getAllGuides();
+        console.log('Loaded guides from backend:', fetchedGuides.length);
+        setGuides(fetchedGuides);
       } catch (error) {
         console.error('Error loading guides:', error);
         Alert.alert(
@@ -569,11 +565,6 @@ function Dashboard() {
       setMessages(prev => [...prev, assistantMessage]);
       setCurrentItinerary(result.itinerary);
       setTravelInfo(result.travelInfo);
-      
-      // Update filters with the city from the itinerary
-      if (result.travelInfo && result.travelInfo.city) {
-        setFilters(prev => ({ ...prev, city: result.travelInfo.city }));
-      }
     } catch (error) {
       console.error('Error generating itinerary:', error);
       const errorMessage: Message = {
@@ -590,11 +581,6 @@ function Dashboard() {
   };
 
   // Update the filtered guides to only use language filter
-  const filteredGuides = guides.filter(guide => {
-    if (filters.city && !guide.city.toLowerCase().includes(filters.city.toLowerCase())) return false;
-    if (filters.language && !guide.languages.includes(filters.language)) return false;
-    return true;
-  });
 
   // Update the renderItinerary function's guides section
   const renderGuides = () => {
@@ -626,7 +612,7 @@ function Dashboard() {
         style={styles.guidesScrollView}
         contentContainerStyle={{ paddingRight: 16 }}
       >
-        {filteredGuides.map((guide) => (
+        {guides.map((guide) => (
           <TouchableOpacity 
             key={guide.id} 
             style={styles.guideCard}
@@ -637,7 +623,7 @@ function Dashboard() {
           >
             <View style={styles.guideImageContainer}>
               <Image 
-                source={{ uri: guide.image }} 
+                source={{ uri: guide.profileImage }} 
                 style={styles.guideImage}
               />
               <View style={styles.ratingContainer}>
@@ -645,7 +631,7 @@ function Dashboard() {
                 <Text style={styles.ratingText}>{guide.rating}</Text>
               </View>
             </View>
-            <Text style={styles.guideName}>{guide.name}</Text>
+            <Text style={styles.guideName}>{guide.fullName}</Text>
             <Text style={styles.guideCity}>{guide.city}</Text>
             <Text style={styles.guideRate}>₹{guide.hourlyRate}/hour</Text>
             <View style={styles.languagesContainer}>
@@ -691,25 +677,7 @@ function Dashboard() {
             <View style={styles.guidesSection}>
               <View style={styles.guidesHeader}>
                 <Text style={styles.guidesSectionTitle}>Local Guides</Text>
-                <TouchableOpacity 
-                  style={styles.filterButton}
-                  onPress={() => setShowFilters(!showFilters)}
-                >
-                  <Ionicons name="filter" size={20} color="#4CAF50" />
-                </TouchableOpacity>
               </View>
-
-              {showFilters && (
-                <View style={styles.filtersContainer}>
-                  <TextInput
-                    style={styles.filterInput}
-                    placeholder="Filter by language"
-                    value={filters.language}
-                    onChangeText={(text) => setFilters(prev => ({ ...prev, language: text }))}
-                  />
-                </View>
-              )}
-
               {renderGuides()}
             </View>
 
@@ -825,6 +793,7 @@ function Dashboard() {
   };
 
   const GuideModal = ({ guide, onClose }: { guide: LocalGuide; onClose: () => void }) => {
+    const { user } = useAuth();
     const [showStartDatePicker, setShowStartDatePicker] = useState(false);
     const [showEndDatePicker, setShowEndDatePicker] = useState(false);
     const [startDate, setStartDate] = useState<Date | null>(null);
@@ -841,19 +810,30 @@ function Dashboard() {
     };
 
     const handleSubmit = async () => {
+      if (!startDate || !endDate) {
+        Alert.alert('Error', 'Please fill in all required fields');
+        return;
+      }
+
       try {
         setIsSubmitting(true);
         
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        const bookingRequest: Omit<BookingRequest, 'status'> = {
+          guideId: guide.id,
+          startDate,
+          endDate,
+          numberOfPeople: parseInt(numberOfPeople),
+          notes: notes || undefined,
+          itineraryId: currentItinerary?.[0]?.itineraryId || 'default' // Use itineraryId with fallback
+        };
+
+        const booking = await bookingService.createBooking(bookingRequest);
         
-        // Simulate successful booking
         setBookingSuccess(true);
         
-        // Show success message
         Alert.alert(
           'Booking Successful!',
-          `Your tour with ${guide.name} has been booked successfully. The guide will contact you shortly to confirm the details.`,
+          `Your tour with ${guide.fullName} has been booked successfully. The guide will contact you shortly to confirm the details.`,
           [{ text: 'OK', onPress: onClose }]
         );
       } catch (error) {
@@ -898,8 +878,8 @@ function Dashboard() {
             </View>
             
             <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
-              <Image source={{ uri: guide.image }} style={styles.modalGuideImage} />
-              <Text style={styles.modalGuideName}>{guide.name}</Text>
+              <Image source={{ uri: guide.profileImage }} style={styles.modalGuideImage} />
+              <Text style={styles.modalGuideName}>{guide.fullName}</Text>
               <Text style={styles.modalGuideCity}>{guide.city}</Text>
               
               <View style={styles.modalRatingContainer}>
@@ -971,7 +951,7 @@ function Dashboard() {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Number of People</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={styles.modalFormInput}
                   value={numberOfPeople}
                   onChangeText={setNumberOfPeople}
                   keyboardType="numeric"
@@ -982,7 +962,7 @@ function Dashboard() {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Notes (Optional)</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={styles.modalFormInput}
                   value={notes}
                   onChangeText={setNotes}
                   placeholder="Any special requirements or preferences?"
@@ -1014,6 +994,84 @@ function Dashboard() {
           </View>
         </View>
       </Modal>
+    );
+  };
+
+  const handleCallGuide = () => {
+    if (!defaultPhoneNumber) {
+      Alert.alert('Error', 'No phone number available');
+      return;
+    }
+    
+    // Format the phone number to ensure it's dialable
+    // Remove all non-digit characters except + for international numbers
+    const formattedNumber = defaultPhoneNumber.replace(/[^\d+]/g, '');
+    const phoneUrl = `tel:${formattedNumber}`;
+    
+    Linking.canOpenURL(phoneUrl)
+      .then(supported => {
+        if (supported) {
+          return Linking.openURL(phoneUrl);
+        } else {
+          Alert.alert('Error', 'Phone calls are not supported on this device');
+        }
+      })
+      .catch(err => {
+        console.error('Error opening phone dialer:', err);
+        Alert.alert('Error', 'Failed to open phone dialer');
+      });
+  };
+
+  useEffect(() => {
+    loadBookings();
+  }, []);
+
+  const loadBookings = async () => {
+    if (!user) return;
+    
+    try {
+      setLoadingBookings(true);
+      const response = await bookingService.getTouristBookings(user.id);
+      // Convert BookingResponse to BookingStatus
+      const convertedBookings: BookingStatus[] = response.map(booking => ({
+        id: booking.id,
+        guideName: 'Guide', // We'll need to fetch guide details separately if needed
+        startDate: booking.startDate.toString(),
+        endDate: booking.endDate.toString(),
+        status: booking.status
+      }));
+      setBookings(convertedBookings);
+    } catch (error) {
+      console.error('Error loading bookings:', error);
+      Alert.alert('Error', 'Failed to load bookings');
+    } finally {
+      setLoadingBookings(false);
+    }
+  };
+
+  const renderBookings = () => {
+    if (loadingBookings) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4A90E2" />
+        </View>
+      );
+    }
+
+    if (bookings.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No bookings yet</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.bookingsContainer}>
+        {bookings.map((booking) => (
+          <BookingStatusCard key={booking.id} booking={booking} />
+        ))}
+      </View>
     );
   };
 
@@ -1408,21 +1466,16 @@ function Dashboard() {
           placeholderTextColor="#666"
           multiline
         />
-        {/* <TouchableOpacity
-          style={[styles.micButton, isRecording && styles.micButtonActive]}
-          onPress={isRecording ? stopRecording : startRecording}
-          disabled={isLoading}
+        <TouchableOpacity
+          style={styles.callButton}
+          onPress={handleCallGuide}
         >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Ionicons
-              name={isRecording ? "mic" : "mic-outline"}
-              size={24}
-              color="#fff"
-            />
-          )}
-        </TouchableOpacity> */}
+          <Ionicons name="call-outline" size={24} color="#fff" style={{marginTop : 6 }} />
+        </TouchableOpacity>
+        <View style={styles.aiCallLabel}>
+          <Ionicons name="sparkles-outline" size={14} color="#4CAF50" />
+          <Text style={styles.aiCallText}>AI Assistant</Text>
+        </View>
         <TouchableOpacity
           style={styles.sendButton}
           onPress={handleSend}
@@ -1441,6 +1494,11 @@ function Dashboard() {
           }} 
         />
       )}
+
+      <View style={styles.bookingsSection}>
+        <Text style={styles.sectionTitle}>My Bookings</Text>
+        {renderBookings()}
+      </View>
     </SafeAreaView>
   );
 }
@@ -1518,10 +1576,10 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 20,
+    fontWeight: 'bold',
     marginBottom: 16,
+    color: '#333',
   },
   optionsGrid: {
     flexDirection: 'row',
@@ -1607,24 +1665,28 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     color: '#333',
   },
-  micButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+  callButton: {
+    backgroundColor: '#4CAF50',
+    padding: 10,
+    borderRadius: 8,
+    marginLeft: 10,
+    marginRight : 10,
   },
-  micButtonActive: {
-    backgroundColor: '#FF3B30',
-    shadowColor: '#FF3B30',
-    transform: [{ scale: 1.1 }],
+  aiCallLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginLeft: 6,
+    marginRight : 10,
+  },
+  aiCallText: {
+    color: '#4CAF50',
+    fontSize: 11,
+    fontWeight: '600',
+    marginLeft: 2,
   },
   sendButton: {
     width: 44,
@@ -2102,7 +2164,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
-  input: {
+  formInput: {
     backgroundColor: '#fff',
     borderRadius: 8,
     paddingHorizontal: 12,
@@ -2159,10 +2221,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   loadingContainer: {
-    flexDirection: 'row',
+    padding: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
   },
   loadingText: {
     marginLeft: 8,
@@ -2365,7 +2425,7 @@ const styles = StyleSheet.create({
   messagesContent: {
     padding: 16,
   },
-  formInput: {
+  modalFormInput: {
     backgroundColor: '#fff',
     borderRadius: 8,
     paddingHorizontal: 12,
@@ -2383,5 +2443,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 8,
+  },
+  bookingsSection: {
+    padding: 16,
+    backgroundColor: '#fff',
+    marginTop: 16,
+  },
+  bookingsContainer: {
+    marginTop: 8,
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  bookingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  bookingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  bookingDetails: {
+    marginTop: 8,
+  },
+  dateText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
   },
 });

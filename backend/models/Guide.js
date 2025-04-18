@@ -13,6 +13,7 @@ const guideSchema = new mongoose.Schema({
   profileImage: { type: String, required: true },
   rating: { type: Number, default: 0 },
   totalTours: { type: Number, default: 0 },
+  requestCount: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });

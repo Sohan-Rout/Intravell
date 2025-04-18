@@ -1,52 +1,49 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+import axios from 'axios';
 
-class ApiError extends Error {
-  constructor(public statusCode: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
-export const apiService = {
-  async get(endpoint: string) {
-    try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`);
-      
-      if (!response.ok) {
-        throw new ApiError(
-          response.status,
-          `Network response was not ok: ${response.status} ${await response.text()}`
-        );
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
-    }
+export const apiService = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
   },
+});
 
-  async post(endpoint: string, data: any) {
-    try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        throw new ApiError(
-          response.status,
-          `Network response was not ok: ${response.status} ${await response.text()}`
-        );
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
-    }
+// Add request interceptor for authentication
+apiService.interceptors.request.use(
+  (config) => {
+    // You can add auth token here if needed
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-}; 
+);
+
+// Add response interceptor for error handling
+apiService.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response) {
+      // Handle specific error cases
+      switch (error.response.status) {
+        case 401:
+          // Handle unauthorized
+          break;
+        case 403:
+          // Handle forbidden
+          break;
+        case 404:
+          // Handle not found
+          break;
+        case 500:
+          // Handle server error
+          break;
+        default:
+          // Handle other errors
+          break;
+      }
+    }
+    return Promise.reject(error);
+  }
+); 

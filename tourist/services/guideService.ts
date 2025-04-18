@@ -1,50 +1,56 @@
 import { apiService } from './apiService';
 
-export type LocalGuide = {
+export interface LocalGuide {
   id: string;
   name: string;
+  fullName: string;
   image: string;
+  profileImage: string;
   rating: number;
   languages: string[];
   city: string;
-  experience: string;
+  experience: number;
   hourlyRate: number;
-};
+  requestCount: number;
+}
 
 export const guideService = {
   async getAllGuides(): Promise<LocalGuide[]> {
     try {
-      return await apiService.get('/guides');
+      const response = await apiService.get('/guides');
+      return response.data;
     } catch (error) {
       console.error('Error fetching guides:', error);
-      throw error;
+      throw new Error('Failed to fetch guides');
     }
   },
 
   async getGuidesByCity(city: string): Promise<LocalGuide[]> {
     try {
-      return await apiService.get(`/guides?city=${city}`);
+      const response = await apiService.get(`/guides/city/${city}`);
+      return response.data;
     } catch (error) {
-      console.error('Error fetching guides by city:', error);
-      throw error;
+      console.error(`Error fetching guides for city ${city}:`, error);
+      throw new Error(`Failed to fetch guides for ${city}`);
     }
   },
 
-  async searchGuides(query: {
-    city?: string;
-    languages?: string[];
-    minRating?: number;
-  }): Promise<LocalGuide[]> {
+  async searchGuides(query: string): Promise<LocalGuide[]> {
     try {
-      const params = new URLSearchParams();
-      if (query.city) params.append('city', query.city);
-      if (query.languages?.length) params.append('languages', query.languages.join(','));
-      if (query.minRating) params.append('minRating', query.minRating.toString());
-      
-      return await apiService.get(`/guides/search?${params.toString()}`);
+      const response = await apiService.get(`/guides/search?q=${encodeURIComponent(query)}`);
+      return response.data;
     } catch (error) {
       console.error('Error searching guides:', error);
-      throw error;
+      throw new Error('Failed to search guides');
+    }
+  },
+
+  async incrementRequestCount(guideId: string): Promise<void> {
+    try {
+      await apiService.post(`/guides/${guideId}/increment-requests`);
+    } catch (error) {
+      console.error('Error incrementing request count:', error);
+      throw new Error('Failed to increment request count');
     }
   }
 }; 

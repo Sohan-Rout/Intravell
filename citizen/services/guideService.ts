@@ -18,7 +18,7 @@ export type GuideProfile = {
 };
 
 export const guideService = {
-  async createProfile(profile: Omit<GuideProfile, 'id' | 'rating' | 'totalTours' | 'createdAt' | 'updatedAt'>) {
+  async createProfile(profile: Omit<GuideProfile, 'rating' | 'totalTours' | 'createdAt' | 'updatedAt'>) {
     try {
       return await apiService.post('/guides', profile);
     } catch (error) {
@@ -50,6 +50,15 @@ export const guideService = {
       return await apiService.get(`/guides?city=${city}`);
     } catch (error) {
       console.error('Error getting guides by city:', error);
+      throw error;
+    }
+  },
+
+  async getAllGuides(): Promise<GuideProfile[]> {
+    try {
+      return await apiService.get('/guides');
+    } catch (error) {
+      console.error('Error getting all guides:', error);
       throw error;
     }
   },

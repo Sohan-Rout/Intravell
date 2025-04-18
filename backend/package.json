@@ -12,9 +12,11 @@
   "type": "commonjs",
   "description": "Backend server for Safer India Guide app",
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
     "mongoose": "^7.0.3",
     "openai": "^4.90.0"
   },

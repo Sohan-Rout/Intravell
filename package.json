@@ -1,9 +1,11 @@
 {
   "dependencies": {
     "@react-native-community/geolocation": "^3.4.0",
+    "axios": "^1.8.4",
     "expo": "^52.0.41",
     "expo-build-properties": "^0.13.2",
     "expo-image-picker": "^16.0.6",
+    "expo-notifications": "^0.29.14",
     "react": "18.3.1",
     "react-native": "0.76.7",
     "react-native-incall-manager": "^4.2.0",
@@ -16,5 +18,8 @@
   "scripts": {
     "android": "expo run:android",
     "ios": "expo run:ios"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.9.36"
   }
 }
